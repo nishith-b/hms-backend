@@ -5,15 +5,21 @@ const AppError = require("../utils/errors/app-error");
 
 const userRepository = new UserRepository();
 
-async function createUser(data) {
+async function createUser({ fullName, email, password, role }) {
   try {
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-    data.password = hashedPassword;
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await userRepository.create(data);
-    return user;
+    const newUser = await userRepository.create({
+      fullName,
+      email,
+      password: hashedPassword,
+      role,
+    });
+
+    return newUser;
   } catch (error) {
-    console.log(error);
+    console.error("Error in createUser service:", error);
+
     throw new AppError(
       "Cannot create a user",
       StatusCodes.INTERNAL_SERVER_ERROR

@@ -8,6 +8,7 @@ async function createUser(req, res) {
   try {
     const { fullName, email, password, role } = req.body;
 
+    // Allow only Patient role
     if (!role || role.toLowerCase() !== PATIENT.toLowerCase()) {
       return res.status(StatusCodes.FORBIDDEN).json({
         message: "Only Patient role is allowed for signup",
@@ -24,7 +25,7 @@ async function createUser(req, res) {
     SuccessResponse.data = response;
     return res.status(StatusCodes.CREATED).json(SuccessResponse);
   } catch (error) {
-    console.log(error);
+    console.error(error);
     ErrorResponse.error = error;
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json(ErrorResponse);
   }
