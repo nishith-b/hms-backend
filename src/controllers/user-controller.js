@@ -31,6 +31,10 @@ async function createUser(req, res) {
   }
 }
 
+async function info(req, res) {
+  res.json(SuccessResponse);
+}
 module.exports = {
   createUser,
+  info,
 };

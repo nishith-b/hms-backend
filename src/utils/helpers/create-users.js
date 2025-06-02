@@ -19,6 +19,12 @@ async function createUserWithRole(email, password, role) {
 }
 
 (async () => {
-  await createUserWithRole("doctor1@hospital.com", "strongpassword", "doctor");
-  await createUserWithRole("admin@hospital.com", "adminpass123", "admin");
+  await createUserWithRole("doctor1@hospital.com", "doctor123", "doctor");
+  await createUserWithRole("admin@hospital.com", "admin123", "admin");
+  await createUserWithRole("nurse1@hospital.com", "nurse123", "nurse");
+  await createUserWithRole("pharmacist1@hospital.com", "pharma123", "pharmacist");
+  await createUserWithRole("receptionist1@hospital.com", "reception123", "receptionist");
+
+  // Optional: test patient (patients usually sign up themselves)
+  await createUserWithRole("patient1@hospital.com", "patient123", "user");
 })();
