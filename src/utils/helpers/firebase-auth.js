@@ -1,5 +1,5 @@
 const { FirebaseConfig } = require("../../config");
-const admin = FirebaseConfig;
+const admin = FirebaseConfig.admin;
 
 async function createUserWithRole(email, password, role) {
   try {
