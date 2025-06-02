@@ -1,4 +1,7 @@
 const mongoose = require("mongoose");
+const { Enums } = require("../utils/common");
+
+const { DOCTOR, PATIENT, PHARMACY, RECEPTIONIST, NURSE, ADMIN } = Enums.ROLES;
 
 const userSchema = new mongoose.Schema({
   fullName: {
@@ -18,7 +21,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ["Admin", "Doctor", "Nurse", "Pharmacy", "Receptionist", "Patient"],
+    enum: [ADMIN, DOCTOR, PATIENT, PHARMACY, RECEPTIONIST, NURSE],
     required: true,
   },
   phone: {
