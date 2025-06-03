@@ -1,16 +1,24 @@
 const axios = require("axios");
 const { FirebaseConfig } = require("../config");
 const { StatusCodes } = require("http-status-codes");
-const { SuccessResponse, ErrorResponse } = require("../utils/common");
 
 const admin = FirebaseConfig.admin;
-
-const COOKIE_NAME = "idToken";
-const COOKIE_MAX_AGE = 60 * 60 * 1000; // 1 hour
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 
 /**
- * Signup a patient (the only role allowed to register directly).
+ * Utility: Create secure auth cookie
+ */
+const setAuthCookie = (res, idToken) => {
+  res.cookie("token", idToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 60 * 60 * 1000, // 1 hour
+  });
+};
+
+/**
+ * Signup a patient (only role allowed to register directly)
  */
 async function signupPatient(req, res) {
   const { email, password, fullName } = req.body;
@@ -22,11 +30,13 @@ async function signupPatient(req, res) {
   }
 
   try {
-    // Check if user already exists
+    // Check for existing user
     try {
-      const response = await admin.auth().getUserByEmail(email);
-      SuccessResponse.data = response;
-      return res.status(StatusCodes.BAD_REQUEST).json({ SuccessResponse });
+      const existingUser = await admin.auth().getUserByEmail(email);
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        message: "User already exists",
+        user: existingUser.toJSON(),
+      });
     } catch (err) {
       if (err.code !== "auth/user-not-found") {
         return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
@@ -44,12 +54,12 @@ async function signupPatient(req, res) {
     });
 
     const uid = userRecord.uid;
-    const role = "patient"; // use lowercase for consistency
+    const role = "patient";
 
-    // Set custom claim
+    // Set custom role claim
     await admin.auth().setCustomUserClaims(uid, { role });
 
-    // Store user data in Firestore
+    // Save user to Firestore
     const db = admin.firestore();
     await db.collection("users").doc(uid).set({
       uid,
@@ -59,12 +69,26 @@ async function signupPatient(req, res) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // Force sign in to get token with updated claims
+    const loginResponse = await axios.post(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`,
+      { email, password, returnSecureToken: true }
+    );
+
+    const idToken = loginResponse.data.idToken;
+
+    // Force token refresh to get custom claims
+    const decoded = await admin.auth().verifyIdToken(idToken, true);
+    setAuthCookie(res, idToken);
+
     return res.status(StatusCodes.CREATED).json({
-      message: "Patient signed up successfully",
-      uid,
-      role,
+      message: "Patient signed up and logged in successfully",
+      uid: decoded.uid,
+      email: decoded.email,
+      role: decoded.role,
     });
   } catch (error) {
+    console.error("Signup error:", error);
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
       message: "Signup failed",
       error: error.message,
@@ -73,79 +97,60 @@ async function signupPatient(req, res) {
 }
 
 /**
- * Shared login logic for all roles.
+ * Shared login logic for all roles
  */
 async function handleRoleBasedLogin(req, res, expectedRole) {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res
-      .status(StatusCodes.BAD_REQUEST)
-      .json({ message: "Email and password required" });
+    return res.status(StatusCodes.BAD_REQUEST).json({
+      message: "Email and password required",
+    });
   }
 
   try {
-    // Step 1: Authenticate via Firebase Auth REST API
+    // Authenticate using Firebase REST API
     const response = await axios.post(
       `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`,
-      {
-        email,
-        password,
-        returnSecureToken: true,
-      }
+      { email, password, returnSecureToken: true }
     );
 
     const idToken = response.data.idToken;
 
-    // Step 2: Verify the ID token with Firebase Admin
-    const decoded = await admin.auth().verifyIdToken(idToken);
+    // Verify ID token and check role
+    const decoded = await admin.auth().verifyIdToken(idToken, true);
 
-    // Step 3: Check role match
     if (decoded.role !== expectedRole) {
       return res.status(StatusCodes.FORBIDDEN).json({
         message: `Access denied. Not a ${expectedRole}.`,
       });
     }
 
-    // Step 4: Set session token in secure cookie
-    res.cookie(COOKIE_NAME, idToken, {
-      maxAge: COOKIE_MAX_AGE,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-    });
+    setAuthCookie(res, idToken);
 
-    // Step 5: Respond with user info
     return res.status(StatusCodes.OK).json({
-      message: `${
-        expectedRole.charAt(0).toUpperCase() + expectedRole.slice(1)
-      } login successful`,
+      message: `${expectedRole.charAt(0).toUpperCase() + expectedRole.slice(1)} login successful`,
       uid: decoded.uid,
       email: decoded.email,
       role: decoded.role,
     });
   } catch (error) {
-    console.error(
-      `${expectedRole} login failed:`,
-      error.response?.data || error.message
-    );
-    return res
-      .status(StatusCodes.UNAUTHORIZED)
-      .json({ message: "Invalid credentials" });
+    console.error(`${expectedRole} login failed:`, error.response?.data || error.message);
+    return res.status(StatusCodes.UNAUTHORIZED).json({
+      message: "Invalid credentials",
+    });
   }
 }
 
-// Role-based login handlers
-const handleDoctorLogin = (req, res) =>
-  handleRoleBasedLogin(req, res, "doctor");
+// Role-based login endpoints
+const handleDoctorLogin = (req, res) => handleRoleBasedLogin(req, res, "doctor");
 const handleAdminLogin = (req, res) => handleRoleBasedLogin(req, res, "admin");
 const handleNurseLogin = (req, res) => handleRoleBasedLogin(req, res, "nurse");
-const handlePharmacistLogin = (req, res) =>
-  handleRoleBasedLogin(req, res, "pharmacist");
-const handleReceptionistLogin = (req, res) =>
-  handleRoleBasedLogin(req, res, "receptionist");
-const handlePatientLogin = (req, res) =>
-  handleRoleBasedLogin(req, res, "patient");
+const handlePharmacistLogin = (req, res) => handleRoleBasedLogin(req, res, "pharmacist");
+const handleReceptionistLogin = (req, res) => handleRoleBasedLogin(req, res, "receptionist");
+const handlePatientLogin = (req, res) => handleRoleBasedLogin(req, res, "patient");
+
+// Export
 module.exports = {
   signupPatient,
   handleDoctorLogin,

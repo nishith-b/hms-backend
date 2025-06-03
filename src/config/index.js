@@ -3,4 +3,5 @@ module.exports = {
   Logger: require("./logger-config"),
   DBConfig: require("./db-config"),
   FirebaseConfig: require("./firebase-config"),
+  SocketConfig: require("./socket-config"),
 };
